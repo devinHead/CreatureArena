@@ -1,0 +1,26 @@
+[
+  {
+    "id": "tackle",
+    "name": "Tackle",
+    "power": 5,
+    "target": "EnemyFront"
+  },
+  {
+    "id": "slam",
+    "name": "Slam",
+    "power": 8,
+    "target": "EnemyFront"
+  },
+  {
+    "id": "zap",
+    "name": "Zap",
+    "power": 6,
+    "target": "EnemyRandom"
+  },
+  {
+    "id": "harden",
+    "name": "Harden",
+    "power": 0,
+    "target": "Self"
+  }
+]

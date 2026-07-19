@@ -1,0 +1,32 @@
+[
+  {
+    "id": "steady",
+    "name": "Steady",
+    "xpGrowth": 1.0,
+    "statBias": {}
+  },
+  {
+    "id": "fierce",
+    "name": "Fierce",
+    "xpGrowth": 0.95,
+    "statBias": { "Atk": 1.1, "Def": 0.9 }
+  },
+  {
+    "id": "swift",
+    "name": "Swift",
+    "xpGrowth": 1.05,
+    "statBias": { "Spd": 1.1, "Atk": 0.9 }
+  },
+  {
+    "id": "sturdy",
+    "name": "Sturdy",
+    "xpGrowth": 1.0,
+    "statBias": { "Def": 1.1, "Spd": 0.9 }
+  },
+  {
+    "id": "gifted",
+    "name": "Gifted",
+    "xpGrowth": 1.15,
+    "statBias": { "Hp": 1.05 }
+  }
+]

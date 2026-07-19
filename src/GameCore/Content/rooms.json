@@ -1,0 +1,74 @@
+[
+  {
+    "id": "camp",
+    "name": "Camp Clearing",
+    "description": "A quiet clearing. Paths lead deeper into the wilds.",
+    "exits": ["meadow", "caves"],
+    "encounterSpeciesIds": ["slime"],
+    "encounterChance": 0.55,
+    "goldLootMin": 1,
+    "goldLootMax": 3,
+    "itemLootIds": [],
+    "visitFlag": "Visited:Camp"
+  },
+  {
+    "id": "meadow",
+    "name": "Sun Meadow",
+    "description": "Tall grass rustles. Something soft and sticky lurks here.",
+    "exits": ["camp", "ridge"],
+    "encounterSpeciesIds": ["slime", "sparkbat"],
+    "encounterChance": 0.75,
+    "goldLootMin": 0,
+    "goldLootMax": 4,
+    "itemLootIds": ["life_seed"],
+    "visitFlag": "Visited:Meadow"
+  },
+  {
+    "id": "caves",
+    "name": "Damp Caves",
+    "description": "Wet stone and echoes. Rockmites cling to the walls.",
+    "exits": ["camp", "crystal"],
+    "encounterSpeciesIds": ["rockmite", "slime"],
+    "encounterChance": 0.8,
+    "goldLootMin": 1,
+    "goldLootMax": 5,
+    "itemLootIds": ["iron_plate"],
+    "visitFlag": "Visited:Caves"
+  },
+  {
+    "id": "ridge",
+    "name": "Windy Ridge",
+    "description": "Gusts whip past. Sparkbats dart between rocks.",
+    "exits": ["meadow", "ruins"],
+    "encounterSpeciesIds": ["sparkbat", "rockmite"],
+    "encounterChance": 0.7,
+    "goldLootMin": 2,
+    "goldLootMax": 6,
+    "itemLootIds": ["wind_charm"],
+    "visitFlag": "Visited:Ridge"
+  },
+  {
+    "id": "crystal",
+    "name": "Crystal Cave",
+    "description": "Glowing crystals pulse. Big slimes sometimes gather here.",
+    "exits": ["caves"],
+    "encounterSpeciesIds": ["slime_big", "rockmite"],
+    "encounterChance": 0.65,
+    "goldLootMin": 3,
+    "goldLootMax": 8,
+    "itemLootIds": ["power_shard"],
+    "visitFlag": "Visited:CrystalCave"
+  },
+  {
+    "id": "ruins",
+    "name": "Old Ruins",
+    "description": "Broken pillars and strong wilds. Higher stakes.",
+    "exits": ["ridge"],
+    "encounterSpeciesIds": ["boulderpike", "thunderwing", "slime_big"],
+    "encounterChance": 0.6,
+    "goldLootMin": 4,
+    "goldLootMax": 10,
+    "itemLootIds": ["power_shard", "life_seed"],
+    "visitFlag": "Visited:Ruins"
+  }
+]

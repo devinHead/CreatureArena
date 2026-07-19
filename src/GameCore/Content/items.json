@@ -1,0 +1,30 @@
+[
+  {
+    "id": "power_shard",
+    "name": "Power Shard",
+    "description": "+3 Atk while held.",
+    "shopCost": 8,
+    "atkBonus": 3
+  },
+  {
+    "id": "iron_plate",
+    "name": "Iron Plate",
+    "description": "+3 Def while held.",
+    "shopCost": 8,
+    "defBonus": 3
+  },
+  {
+    "id": "wind_charm",
+    "name": "Wind Charm",
+    "description": "+3 Spd while held.",
+    "shopCost": 8,
+    "spdBonus": 3
+  },
+  {
+    "id": "life_seed",
+    "name": "Life Seed",
+    "description": "+5 HP while held.",
+    "shopCost": 10,
+    "hpBonus": 5
+  }
+]
