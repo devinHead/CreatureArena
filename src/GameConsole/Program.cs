@@ -1,12 +1,13 @@
-﻿using GameCore;
+﻿using System.Text;
+using GameCore;
 
+Console.OutputEncoding = Encoding.UTF8;
 Console.WriteLine("=== Creature Arena (headless prototype) ===");
-Console.WriteLine("Explore rooms, fight wilds, shop, then auto-battle. Type 'help'.");
+Console.WriteLine("Pick a starter, explore, fight wilds, shop, then auto-battle. Type 'help'.");
 Console.WriteLine();
 
 var session = new GameSession();
-Print(session.Handle("look"));
-Print(session.Handle("status"));
+Print(session.ShowStarters());
 
 while (true)
 {
@@ -26,8 +27,10 @@ Console.WriteLine("Bye.");
 
 static void Print(CommandResult result)
 {
-    Console.WriteLine(result.Ok ? result.Message : $"! {result.Message}");
+    var sb = new StringBuilder();
+    sb.AppendLine(result.Ok ? result.Message : $"! {result.Message}");
     foreach (var line in result.Lines)
-        Console.WriteLine(line);
+        sb.AppendLine(line);
+    Console.Write(sb.ToString());
     Console.WriteLine();
 }

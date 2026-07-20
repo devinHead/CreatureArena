@@ -16,4 +16,9 @@ public sealed class BattleSideResult
 public interface IBattleResolver
 {
     BattleSideResult Resolve(IReadOnlyList<Combatant> playerSide, IReadOnlyList<Combatant> enemySide);
+
+    double EstimateWinRate(
+        IReadOnlyList<Combatant> playerSide,
+        IReadOnlyList<Combatant> enemySide,
+        int simulations = 40);
 }

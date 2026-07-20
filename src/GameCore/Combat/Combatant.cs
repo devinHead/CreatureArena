@@ -7,6 +7,7 @@ public sealed class Combatant
     public Guid InstanceId { get; init; }
     public string Name { get; init; } = "";
     public string SpeciesId { get; init; } = "";
+    public ElementType Type { get; init; } = ElementType.Normal;
     public int EvolutionStage { get; init; } = 1;
     public int Level { get; init; } = 1;
     public StatBlock Stats { get; init; } = new();
@@ -21,6 +22,7 @@ public sealed class Combatant
         InstanceId = creature.Id,
         Name = creature.Nickname,
         SpeciesId = creature.SpeciesId,
+        Type = species.Type,
         EvolutionStage = species.EvolutionStage,
         Level = creature.Level,
         Stats = creature.CombatStats.Clone(),

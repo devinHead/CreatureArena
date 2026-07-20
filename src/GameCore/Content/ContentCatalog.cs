@@ -11,19 +11,22 @@ public sealed class ContentCatalog
     public IReadOnlyDictionary<string, MoveDef> Moves { get; }
     public IReadOnlyDictionary<string, ItemDef> Items { get; }
     public IReadOnlyDictionary<string, RoomDef> Rooms { get; }
+    public IReadOnlyDictionary<string, AbilityDef> Abilities { get; }
 
     private ContentCatalog(
         Dictionary<string, SpeciesDef> species,
         Dictionary<string, NatureDef> natures,
         Dictionary<string, MoveDef> moves,
         Dictionary<string, ItemDef> items,
-        Dictionary<string, RoomDef> rooms)
+        Dictionary<string, RoomDef> rooms,
+        Dictionary<string, AbilityDef> abilities)
     {
         Species = species;
         Natures = natures;
         Moves = moves;
         Items = items;
         Rooms = rooms;
+        Abilities = abilities;
     }
 
     public static ContentCatalog Load(string? contentDirectory = null)
@@ -45,8 +48,10 @@ public sealed class ContentCatalog
             .ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
         var rooms = LoadList<RoomDef>(Path.Combine(dir, "rooms.json"), options)
             .ToDictionary(r => r.Id, StringComparer.OrdinalIgnoreCase);
+        var abilities = LoadList<AbilityDef>(Path.Combine(dir, "abilities.json"), options)
+            .ToDictionary(a => a.Id, StringComparer.OrdinalIgnoreCase);
 
-        return new ContentCatalog(species, natures, moves, items, rooms);
+        return new ContentCatalog(species, natures, moves, items, rooms, abilities);
     }
 
     private static List<T> LoadList<T>(string path, JsonSerializerOptions options)
@@ -63,6 +68,9 @@ public sealed class ContentCatalog
 
     public NatureDef GetNature(string id) =>
         Natures.TryGetValue(id, out var n) ? n : throw new KeyNotFoundException($"Unknown nature '{id}'");
+
+    public AbilityDef? TryGetAbility(string id) =>
+        Abilities.TryGetValue(id, out var a) ? a : null;
 
     public ItemDef? TryGetItem(string id) =>
         Items.TryGetValue(id, out var i) ? i : null;

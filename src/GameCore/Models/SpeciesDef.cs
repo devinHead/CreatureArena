@@ -1,21 +1,34 @@
 namespace GameCore.Models;
 
+/// <summary>One possible evolution branch. Different species should not share the same IntoId.</summary>
+public sealed class EvolutionOption
+{
+    public string IntoId { get; set; } = "";
+    public int? AtLevel { get; set; }
+    public List<string>? RequiresPlayerFlags { get; set; }
+    public List<string>? RequiresCreatureFlags { get; set; }
+}
+
 public sealed class SpeciesDef
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    public ElementType Type { get; set; } = ElementType.Normal;
     public StatBlock BaseStats { get; set; } = new();
-    /// <summary>Evolution tier used for PvP loser damage (1/2/3).</summary>
     public int EvolutionStage { get; set; } = 1;
-    public List<string> MoveIds { get; set; } = new();
-    public string? AbilityId { get; set; }
-    public string? EvolvesIntoId { get; set; }
-    public int? EvolveAtLevel { get; set; }
-    public string? EvolveRequiresFlag { get; set; }
-    /// <summary>Chance (0-1) to drop an item when player declines capture.</summary>
-    public double DeclineItemChance { get; set; } = 0.45;
-    /// <summary>Chance (0-1) to also get an item when accepting into the party.</summary>
-    public double AcceptAlsoItemChance { get; set; } = 0.12;
+    /// <summary>Moves learned automatically by leveling (level = first level they can know it).</summary>
+    public List<LearnsetEntry> Learnset { get; set; } = new();
+    /// <summary>Moves this species is allowed to learn from shop tomes.</summary>
+    public List<string> ShopMoveIds { get; set; } = new();
+    public bool IsStarter { get; set; }
+    public List<AbilityOption> AbilityOptions { get; set; } = new();
+    public List<EvolutionOption> Evolutions { get; set; } = new();
+    public double? DeclineItemChance { get; set; }
+    public double? AcceptItemChance { get; set; }
     public List<string> DropItemIds { get; set; } = new();
-    public int DeclineGoldBonus { get; set; } = 5;
+    public int? DeclineGoldBonus { get; set; }
+    public int? BuyGoldMin { get; set; }
+    public int? BuyGoldMax { get; set; }
+    public int? SellGoldMin { get; set; }
+    public int? SellGoldMax { get; set; }
 }

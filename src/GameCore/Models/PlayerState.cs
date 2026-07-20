@@ -9,6 +9,8 @@ public sealed class PlayerState
     public int Gold { get; set; } = 10;
     public List<Creature> Party { get; set; } = new();
     public List<string> InventoryItemIds { get; set; } = new();
+    /// <summary>Learned-move tomes sitting in inventory (teach to creatures).</summary>
+    public List<string> InventoryMoveIds { get; set; } = new();
     /// <summary>Board slots reference creature Ids from Party. Null = empty slot.</summary>
     public Guid?[] Board { get; set; } = new Guid?[MaxBoardSize];
     public HashSet<string> Flags { get; set; } = new(StringComparer.OrdinalIgnoreCase);

@@ -10,7 +10,8 @@ public sealed class CommandResult
     {
         Ok = true,
         Message = message,
-        Lines = lines?.ToList() ?? new List<string>()
+        // Snapshot so later mutation / lazy iterators can't scramble console output.
+        Lines = lines?.ToArray() ?? Array.Empty<string>()
     };
 
     public static CommandResult Fail(string message) => new()

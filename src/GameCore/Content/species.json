@@ -2,87 +2,264 @@
   {
     "id": "slime",
     "name": "Slime",
-    "baseStats": { "hp": 18, "atk": 6, "def": 4, "spd": 5 },
+    "type": "Water",
+    "baseStats": { "hp": 22, "atk": 8, "def": 8, "spd": 7 },
     "evolutionStage": 1,
-    "moveIds": ["tackle"],
-    "evolvesIntoId": "slime_big",
-    "evolveAtLevel": 4,
+    "learnset": [
+      { "moveId": "tackle", "level": 1 },
+      { "moveId": "water_gun", "level": 3 }
+    ],
+    "shopMoveIds": ["tackle", "water_gun", "surge", "harden"],
+    "isStarter": true,
+    "abilityOptions": [
+      { "abilityId": "sticky", "weight": 60 },
+      { "abilityId": "absorb", "weight": 40 }
+    ],
+    "evolutions": [
+      { "intoId": "slime_big", "atLevel": 4, "requiresPlayerFlags": null, "requiresCreatureFlags": null }
+    ],
     "declineItemChance": 0.5,
-    "acceptAlsoItemChance": 0.1,
+    "acceptItemChance": 0.1,
     "dropItemIds": ["power_shard", "life_seed"],
-    "declineGoldBonus": 4
+    "declineGoldBonus": 4,
+    "buyGoldMin": 6,
+    "buyGoldMax": 10,
+    "sellGoldMin": 2,
+    "sellGoldMax": 5
   },
   {
     "id": "slime_big",
     "name": "Big Slime",
-    "baseStats": { "hp": 28, "atk": 10, "def": 8, "spd": 4 },
+    "type": "Water",
+    "baseStats": { "hp": 30, "atk": 11, "def": 11, "spd": 6 },
     "evolutionStage": 2,
-    "moveIds": ["tackle", "slam"],
-    "evolvesIntoId": "slime_king",
-    "evolveAtLevel": 8,
-    "evolveRequiresFlag": "Visited:CrystalCave",
+    "learnset": [
+      { "moveId": "tackle", "level": 1 },
+      { "moveId": "water_gun", "level": 1 },
+      { "moveId": "surge", "level": 6 }
+    ],
+    "shopMoveIds": ["tackle", "water_gun", "surge", "harden", "slam"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "sticky", "weight": 50 },
+      { "abilityId": "absorb", "weight": 50 }
+    ],
+    "evolutions": [
+      {
+        "intoId": "slime_king",
+        "atLevel": 8,
+        "requiresPlayerFlags": null,
+        "requiresCreatureFlags": ["Visited:CrystalCave", "WonBattle:crystal"]
+      },
+      {
+        "intoId": "ooze_titan",
+        "atLevel": 8,
+        "requiresPlayerFlags": ["WonBattle"],
+        "requiresCreatureFlags": null
+      }
+    ],
     "declineItemChance": 0.4,
-    "acceptAlsoItemChance": 0.12,
+    "acceptItemChance": 0.12,
     "dropItemIds": ["iron_plate", "life_seed"],
-    "declineGoldBonus": 7
+    "declineGoldBonus": 7,
+    "buyGoldMin": 12,
+    "buyGoldMax": 18,
+    "sellGoldMin": 5,
+    "sellGoldMax": 9
   },
   {
     "id": "slime_king",
     "name": "Slime King",
-    "baseStats": { "hp": 40, "atk": 14, "def": 12, "spd": 6 },
+    "type": "Water",
+    "baseStats": { "hp": 40, "atk": 14, "def": 14, "spd": 7 },
     "evolutionStage": 3,
-    "moveIds": ["slam", "harden"],
+    "learnset": [
+      { "moveId": "water_gun", "level": 1 },
+      { "moveId": "surge", "level": 1 },
+      { "moveId": "harden", "level": 1 },
+      { "moveId": "slam", "level": 10 }
+    ],
+    "shopMoveIds": ["water_gun", "surge", "harden", "slam", "tackle"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "sticky", "weight": 40 },
+      { "abilityId": "absorb", "weight": 60 }
+    ],
+    "evolutions": [],
     "declineItemChance": 0.35,
-    "acceptAlsoItemChance": 0.15,
+    "acceptItemChance": 0.15,
     "dropItemIds": ["power_shard", "iron_plate"],
-    "declineGoldBonus": 12
+    "declineGoldBonus": 12,
+    "buyGoldMin": 22,
+    "buyGoldMax": 30,
+    "sellGoldMin": 10,
+    "sellGoldMax": 16
+  },
+  {
+    "id": "ooze_titan",
+    "name": "Ooze Titan",
+    "type": "Water",
+    "baseStats": { "hp": 38, "atk": 16, "def": 12, "spd": 8 },
+    "evolutionStage": 3,
+    "learnset": [
+      { "moveId": "surge", "level": 1 },
+      { "moveId": "slam", "level": 1 },
+      { "moveId": "water_gun", "level": 1 }
+    ],
+    "shopMoveIds": ["surge", "slam", "water_gun", "harden"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "absorb", "weight": 70 },
+      { "abilityId": "sticky", "weight": 30 }
+    ],
+    "evolutions": [],
+    "declineItemChance": 0.35,
+    "acceptItemChance": 0.15,
+    "dropItemIds": ["power_shard", "wind_charm"],
+    "declineGoldBonus": 12,
+    "buyGoldMin": 22,
+    "buyGoldMax": 30,
+    "sellGoldMin": 10,
+    "sellGoldMax": 16
   },
   {
     "id": "rockmite",
     "name": "Rockmite",
-    "baseStats": { "hp": 16, "atk": 7, "def": 8, "spd": 3 },
+    "type": "Grass",
+    "baseStats": { "hp": 20, "atk": 8, "def": 11, "spd": 5 },
     "evolutionStage": 1,
-    "moveIds": ["tackle", "harden"],
-    "evolvesIntoId": "boulderpike",
-    "evolveAtLevel": 5,
+    "learnset": [
+      { "moveId": "tackle", "level": 1 },
+      { "moveId": "vine_whip", "level": 3 },
+      { "moveId": "harden", "level": 4 }
+    ],
+    "shopMoveIds": ["tackle", "vine_whip", "leaf_storm", "harden"],
+    "isStarter": true,
+    "abilityOptions": [
+      { "abilityId": "sturdy_shell", "weight": 55 },
+      { "abilityId": "rock_head", "weight": 45 }
+    ],
+    "evolutions": [
+      { "intoId": "boulderpike", "atLevel": 5, "requiresPlayerFlags": null, "requiresCreatureFlags": null }
+    ],
     "declineItemChance": 0.45,
-    "acceptAlsoItemChance": 0.1,
+    "acceptItemChance": 0.1,
     "dropItemIds": ["iron_plate"],
-    "declineGoldBonus": 5
+    "declineGoldBonus": 5,
+    "buyGoldMin": 6,
+    "buyGoldMax": 10,
+    "sellGoldMin": 2,
+    "sellGoldMax": 5
   },
   {
     "id": "boulderpike",
     "name": "Boulderpike",
-    "baseStats": { "hp": 30, "atk": 12, "def": 14, "spd": 4 },
+    "type": "Grass",
+    "baseStats": { "hp": 32, "atk": 12, "def": 15, "spd": 5 },
     "evolutionStage": 2,
-    "moveIds": ["slam", "harden"],
+    "learnset": [
+      { "moveId": "vine_whip", "level": 1 },
+      { "moveId": "harden", "level": 1 },
+      { "moveId": "leaf_storm", "level": 5 },
+      { "moveId": "slam", "level": 7 }
+    ],
+    "shopMoveIds": ["vine_whip", "leaf_storm", "harden", "slam", "tackle"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "sturdy_shell", "weight": 50 },
+      { "abilityId": "rock_head", "weight": 50 }
+    ],
+    "evolutions": [],
     "declineItemChance": 0.4,
-    "acceptAlsoItemChance": 0.12,
+    "acceptItemChance": 0.12,
     "dropItemIds": ["iron_plate", "power_shard"],
-    "declineGoldBonus": 8
+    "declineGoldBonus": 8,
+    "buyGoldMin": 14,
+    "buyGoldMax": 20,
+    "sellGoldMin": 6,
+    "sellGoldMax": 11
   },
   {
     "id": "sparkbat",
     "name": "Sparkbat",
-    "baseStats": { "hp": 14, "atk": 8, "def": 3, "spd": 10 },
+    "type": "Fire",
+    "baseStats": { "hp": 18, "atk": 9, "def": 6, "spd": 12 },
     "evolutionStage": 1,
-    "moveIds": ["zap"],
-    "evolvesIntoId": "thunderwing",
-    "evolveAtLevel": 5,
+    "learnset": [
+      { "moveId": "tackle", "level": 1 },
+      { "moveId": "ember", "level": 2 }
+    ],
+    "shopMoveIds": ["tackle", "ember", "flame_burst", "harden"],
+    "isStarter": true,
+    "abilityOptions": [
+      { "abilityId": "static", "weight": 50 },
+      { "abilityId": "swift_wing", "weight": 35 },
+      { "abilityId": "keen_eye", "weight": 15 }
+    ],
+    "evolutions": [
+      { "intoId": "thunderwing", "atLevel": 5, "requiresPlayerFlags": null, "requiresCreatureFlags": null }
+    ],
     "declineItemChance": 0.45,
-    "acceptAlsoItemChance": 0.1,
+    "acceptItemChance": 0.1,
     "dropItemIds": ["wind_charm"],
-    "declineGoldBonus": 5
+    "declineGoldBonus": 5,
+    "buyGoldMin": 6,
+    "buyGoldMax": 10,
+    "sellGoldMin": 2,
+    "sellGoldMax": 5
   },
   {
     "id": "thunderwing",
     "name": "Thunderwing",
-    "baseStats": { "hp": 24, "atk": 13, "def": 6, "spd": 15 },
+    "type": "Fire",
+    "baseStats": { "hp": 26, "atk": 13, "def": 8, "spd": 16 },
     "evolutionStage": 2,
-    "moveIds": ["zap", "slam"],
+    "learnset": [
+      { "moveId": "ember", "level": 1 },
+      { "moveId": "flame_burst", "level": 5 },
+      { "moveId": "slam", "level": 6 }
+    ],
+    "shopMoveIds": ["ember", "flame_burst", "slam", "tackle", "harden"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "static", "weight": 45 },
+      { "abilityId": "swift_wing", "weight": 45 },
+      { "abilityId": "keen_eye", "weight": 10 }
+    ],
+    "evolutions": [],
     "declineItemChance": 0.4,
-    "acceptAlsoItemChance": 0.12,
+    "acceptItemChance": 0.15,
     "dropItemIds": ["wind_charm", "power_shard"],
-    "declineGoldBonus": 9
+    "declineGoldBonus": 9,
+    "buyGoldMin": 14,
+    "buyGoldMax": 20,
+    "sellGoldMin": 6,
+    "sellGoldMax": 11
+  },
+  {
+    "id": "plainpup",
+    "name": "Plainpup",
+    "type": "Normal",
+    "baseStats": { "hp": 21, "atk": 8, "def": 8, "spd": 8 },
+    "evolutionStage": 1,
+    "learnset": [
+      { "moveId": "tackle", "level": 1 },
+      { "moveId": "harden", "level": 3 },
+      { "moveId": "slam", "level": 5 }
+    ],
+    "shopMoveIds": ["tackle", "harden", "slam"],
+    "isStarter": false,
+    "abilityOptions": [
+      { "abilityId": "keen_eye", "weight": 100 }
+    ],
+    "evolutions": [],
+    "declineItemChance": 0.4,
+    "acceptItemChance": 0.1,
+    "dropItemIds": ["life_seed"],
+    "declineGoldBonus": 4,
+    "buyGoldMin": 5,
+    "buyGoldMax": 8,
+    "sellGoldMin": 2,
+    "sellGoldMax": 4
   }
 ]

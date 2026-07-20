@@ -16,7 +16,7 @@
     "name": "Sun Meadow",
     "description": "Tall grass rustles. Something soft and sticky lurks here.",
     "exits": ["camp", "ridge"],
-    "encounterSpeciesIds": ["slime", "sparkbat"],
+    "encounterSpeciesIds": ["slime", "sparkbat", "plainpup"],
     "encounterChance": 0.75,
     "goldLootMin": 0,
     "goldLootMax": 4,

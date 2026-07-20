@@ -1,0 +1,37 @@
+[
+  {
+    "id": "sticky",
+    "name": "Sticky",
+    "description": "Slightly harder to finish off. (stub — no combat effect yet)"
+  },
+  {
+    "id": "absorb",
+    "name": "Absorb",
+    "description": "Recovers a bit when hitting. (stub)"
+  },
+  {
+    "id": "sturdy_shell",
+    "name": "Sturdy Shell",
+    "description": "Negates a KO from full HP once. (stub)"
+  },
+  {
+    "id": "static",
+    "name": "Static",
+    "description": "May flinch attackers. (stub)"
+  },
+  {
+    "id": "keen_eye",
+    "name": "Keen Eye",
+    "description": "Accuracy never drops. (stub)"
+  },
+  {
+    "id": "rock_head",
+    "name": "Rock Head",
+    "description": "No recoil from own moves. (stub)"
+  },
+  {
+    "id": "swift_wing",
+    "name": "Swift Wing",
+    "description": "Moves first more often in ties. (stub)"
+  }
+]

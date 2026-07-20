@@ -24,13 +24,14 @@ public sealed class CreatureFactory
             Nickname = nickname ?? species.Name,
             Level = Math.Max(1, level),
             Xp = 0,
-            StartingStats = RollStarting(),
             Potential = RollPotential(),
             NatureId = nature.Id,
-            MoveIds = species.MoveIds.ToList()
+            AbilityId = RollAbility(species),
+            MoveIds = MovesKnownAtLevel(species, Math.Max(1, level))
         };
 
         Refresh(creature);
+        HealFull(creature);
         return creature;
     }
 
@@ -44,19 +45,69 @@ public sealed class CreatureFactory
 
     public void HealFull(Creature creature) => creature.CurrentHp = creature.CombatStats.Hp;
 
+    /// <summary>
+    /// Learns any learnset moves newly available at the creature's current level.
+    /// Returns names of moves learned (empty if none / no room).
+    /// </summary>
+    public List<string> TryLearnLevelMoves(Creature creature)
+    {
+        var species = _content.GetSpecies(creature.SpeciesId);
+        var learned = new List<string>();
+        foreach (var entry in species.Learnset.OrderBy(e => e.Level))
+        {
+            if (entry.Level > creature.Level) continue;
+            if (creature.MoveIds.Contains(entry.MoveId, StringComparer.OrdinalIgnoreCase)) continue;
+            if (creature.MoveIds.Count >= Creature.MaxMoves) break;
+            if (!_content.Moves.ContainsKey(entry.MoveId)) continue;
+
+            creature.MoveIds.Add(entry.MoveId);
+            var moveName = _content.Moves[entry.MoveId].Name;
+            learned.Add(moveName);
+        }
+
+        return learned;
+    }
+
+    public static List<string> MovesKnownAtLevel(SpeciesDef species, int level) =>
+        species.Learnset
+            .Where(e => e.Level <= level)
+            .OrderBy(e => e.Level)
+            .Select(e => e.MoveId)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(Creature.MaxMoves)
+            .ToList();
+
+    public bool CanLearnFromShop(Creature creature, string moveId)
+    {
+        var species = _content.GetSpecies(creature.SpeciesId);
+        return species.ShopMoveIds.Any(m => m.Equals(moveId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private string? RollAbility(SpeciesDef species)
+    {
+        if (species.AbilityOptions.Count == 0)
+            return null;
+
+        var total = species.AbilityOptions.Sum(o => Math.Max(0, o.Weight));
+        if (total <= 0)
+            return species.AbilityOptions[0].AbilityId;
+
+        var roll = _rng.NextDouble() * total;
+        foreach (var option in species.AbilityOptions)
+        {
+            roll -= Math.Max(0, option.Weight);
+            if (roll <= 0)
+                return option.AbilityId;
+        }
+
+        return species.AbilityOptions[^1].AbilityId;
+    }
+
     private NatureDef PickRandomNature()
     {
         var list = _content.Natures.Values.ToList();
         return list[_rng.Next(list.Count)];
     }
-
-    private StatBlock RollStarting() => new()
-    {
-        Hp = _rng.Next(0, 6),
-        Atk = _rng.Next(0, 6),
-        Def = _rng.Next(0, 6),
-        Spd = _rng.Next(0, 6)
-    };
 
     private StatBlock RollPotential() => new()
     {

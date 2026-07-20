@@ -11,7 +11,7 @@ public sealed class AutoBattleResolver : IBattleResolver
 {
     private readonly ContentCatalog _content;
     private readonly Random _rng;
-    private const int MaxRounds = 200;
+    private const int MaxRounds = 80;
 
     public AutoBattleResolver(ContentCatalog content, Random rng)
     {
@@ -19,16 +19,46 @@ public sealed class AutoBattleResolver : IBattleResolver
         _rng = rng;
     }
 
-    public BattleSideResult Resolve(IReadOnlyList<Combatant> playerSide, IReadOnlyList<Combatant> enemySide)
+    public BattleSideResult Resolve(IReadOnlyList<Combatant> playerSide, IReadOnlyList<Combatant> enemySide) =>
+        ResolveInternal(playerSide, enemySide, writeLog: true, syncHp: true);
+
+    public double EstimateWinRate(
+        IReadOnlyList<Combatant> playerSide,
+        IReadOnlyList<Combatant> enemySide,
+        int simulations = 24)
+    {
+        if (playerSide.Count == 0) return 0;
+        if (enemySide.Count == 0) return 1;
+
+        var wins = 0;
+        for (var i = 0; i < simulations; i++)
+        {
+            var p = playerSide.Select(Clone).ToList();
+            var e = enemySide.Select(Clone).ToList();
+            if (ResolveInternal(p, e, writeLog: false, syncHp: false).Won)
+                wins++;
+        }
+
+        return wins / (double)simulations;
+    }
+
+    private BattleSideResult ResolveInternal(
+        IReadOnlyList<Combatant> playerSide,
+        IReadOnlyList<Combatant> enemySide,
+        bool writeLog,
+        bool syncHp)
     {
         var player = playerSide.Select(Clone).ToList();
         var enemy = enemySide.Select(Clone).ToList();
-        var log = new List<BattleEvent>();
+        var log = writeLog ? new List<BattleEvent>() : null;
         var participants = player.Select(c => c.InstanceId).Concat(enemy.Select(c => c.InstanceId)).Distinct().ToList();
 
-        log.Add(Msg("=== Auto-battle start ==="));
-        log.Add(Msg($"You: {Summarize(player)}"));
-        log.Add(Msg($"Foe: {Summarize(enemy)}"));
+        if (writeLog)
+        {
+            log!.Add(Msg("=== Auto-battle start ==="));
+            log.Add(Msg($"You: {Summarize(player)}"));
+            log.Add(Msg($"Foe: {Summarize(enemy)}"));
+        }
 
         var safety = 0;
         while (player.Any(c => c.IsAlive) && enemy.Any(c => c.IsAlive) && safety++ < MaxRounds)
@@ -42,11 +72,10 @@ public sealed class AutoBattleResolver : IBattleResolver
             foreach (var actor in order)
             {
                 if (!actor.IsAlive) continue;
-                var allies = actor.IsPlayer ? player : enemy;
                 var foes = actor.IsPlayer ? enemy : player;
                 if (!foes.Any(c => c.IsAlive)) break;
 
-                Act(actor, allies, foes, log);
+                Act(actor, foes, log);
                 if (!player.Any(c => c.IsAlive) || !enemy.Any(c => c.IsAlive))
                     break;
             }
@@ -56,53 +85,93 @@ public sealed class AutoBattleResolver : IBattleResolver
         var survivors = playerWon ? player.Where(c => c.IsAlive) : enemy.Where(c => c.IsAlive);
         var damage = survivors.Sum(c => c.EvolutionStage);
 
-        log.Add(Msg(playerWon
-            ? $"You win! Opponent takes {damage} HP damage (sum of your survivors' evolution stages)."
-            : $"You lose! You take {damage} HP damage (sum of foe survivors' evolution stages)."));
+        if (writeLog)
+        {
+            log!.Add(Msg(playerWon
+                ? $"You win! Survivor evolution-stage total: {damage}."
+                : $"You lose! Foe survivor evolution-stage total: {damage}."));
+        }
 
-        // Write remaining HP back is handled by caller via participant lists if needed;
-        // sync HP onto originals by InstanceId for player's creatures.
-        SyncHp(playerSide, player);
-        SyncHp(enemySide, enemy);
+        if (syncHp)
+        {
+            SyncHp(playerSide, player);
+            SyncHp(enemySide, enemy);
+        }
 
         return new BattleSideResult
         {
             Won = playerWon,
             DamageDealtToLoserHp = damage,
             ParticipantIds = participants,
-            Log = log
+            Log = log ?? new List<BattleEvent>()
         };
     }
 
-    private void Act(Combatant actor, List<Combatant> allies, List<Combatant> foes, List<BattleEvent> log)
+    private void Act(Combatant actor, List<Combatant> foes, List<BattleEvent>? log)
     {
-        var moveId = actor.MoveIds.Count == 0 ? "tackle" : actor.MoveIds[_rng.Next(actor.MoveIds.Count)];
+        var moveId = PickMove(actor);
         if (!_content.Moves.TryGetValue(moveId, out var move))
             move = new MoveDef { Id = "tackle", Name = "Tackle", Power = 5, Target = MoveTarget.EnemyFront };
 
         if (move.Target == MoveTarget.Self)
         {
-            actor.Stats.Def += 1;
-            log.Add(Msg($"{actor.Name} uses {move.Name}! Defense rises."));
-            return;
+            if (actor.Stats.Def >= actor.Stats.Atk + 6)
+            {
+                moveId = actor.MoveIds.FirstOrDefault(id =>
+                    _content.Moves.TryGetValue(id, out var m) && m.Target != MoveTarget.Self) ?? "tackle";
+                if (!_content.Moves.TryGetValue(moveId, out move))
+                    move = new MoveDef { Id = "tackle", Name = "Tackle", Power = 5, Target = MoveTarget.EnemyFront };
+            }
+            else
+            {
+                actor.Stats.Def += 1;
+                log?.Add(Msg($"{actor.Name} uses {move.Name}! Defense rises."));
+                return;
+            }
         }
 
         var livingFoes = foes.Where(c => c.IsAlive).ToList();
         if (livingFoes.Count == 0) return;
 
-        Combatant target = move.Target == MoveTarget.EnemyRandom
+        var target = move.Target == MoveTarget.EnemyRandom
             ? livingFoes[_rng.Next(livingFoes.Count)]
-            : livingFoes.OrderByDescending(c => c.Stats.Spd).First(); // "front" ≈ highest threat / first in speed for now
+            : livingFoes[0];
 
-        // Prefer first living as front line: use list order as board order.
-        if (move.Target == MoveTarget.EnemyFront)
-            target = livingFoes[0];
-
-        var damage = Math.Max(1, actor.Stats.Atk + move.Power - target.Stats.Def / 2);
+        var stab = TypeChart.Stab(actor.Type, move.Type);
+        var effectiveness = TypeChart.Effectiveness(move.Type, target.Type);
+        var raw = actor.Stats.Atk + move.Power - target.Stats.Def;
+        var damage = Math.Max(1, (int)Math.Round(Math.Max(1, raw) * stab * effectiveness));
         target.CurrentHp = Math.Max(0, target.CurrentHp - damage);
-        log.Add(Msg($"{actor.Name} uses {move.Name} on {target.Name} for {damage} dmg. ({target.CurrentHp}/{target.Stats.Hp} HP)"));
+
+        var tags = new List<string>();
+        if (stab > 1.01) tags.Add("STAB");
+        var effLabel = TypeChart.EffectivenessLabel(effectiveness);
+        if (effLabel.Length > 0) tags.Add(effLabel);
+        var tagText = tags.Count > 0 ? $" [{string.Join("; ", tags)}]" : "";
+
+        log?.Add(Msg(
+            $"{actor.Name} uses {move.Name} ({move.Type}) on {target.Name} for {damage} dmg.{tagText} " +
+            $"({target.CurrentHp}/{target.Stats.Hp} HP)"));
         if (!target.IsAlive)
-            log.Add(Msg($"{target.Name} is defeated!"));
+            log?.Add(Msg($"{target.Name} is defeated!"));
+    }
+
+    private string PickMove(Combatant actor)
+    {
+        if (actor.MoveIds.Count == 0) return "tackle";
+
+        var attacks = actor.MoveIds
+            .Where(id => _content.Moves.TryGetValue(id, out var m) && m.Target != MoveTarget.Self)
+            .ToList();
+        var buffs = actor.MoveIds
+            .Where(id => _content.Moves.TryGetValue(id, out var m) && m.Target == MoveTarget.Self)
+            .ToList();
+
+        if (attacks.Count > 0 && (buffs.Count == 0 || _rng.NextDouble() < 0.75))
+            return attacks[_rng.Next(attacks.Count)];
+        if (buffs.Count > 0)
+            return buffs[_rng.Next(buffs.Count)];
+        return actor.MoveIds[_rng.Next(actor.MoveIds.Count)];
     }
 
     private static void SyncHp(IReadOnlyList<Combatant> original, List<Combatant> working)
@@ -119,6 +188,7 @@ public sealed class AutoBattleResolver : IBattleResolver
         InstanceId = c.InstanceId,
         Name = c.Name,
         SpeciesId = c.SpeciesId,
+        Type = c.Type,
         EvolutionStage = c.EvolutionStage,
         Level = c.Level,
         Stats = c.Stats.Clone(),

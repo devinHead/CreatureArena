@@ -12,13 +12,18 @@ public sealed class GameSession
     private Random _rng;
 
     public PlayerState Player { get; } = new();
-    public GamePhase Phase { get; private set; } = GamePhase.Explore;
+    public GamePhase Phase { get; private set; } = GamePhase.StarterSelect;
     public int Round { get; private set; } = 1;
     public int Seed { get; private set; }
     public string CurrentRoomId { get; private set; } = "camp";
-    public string? ActiveEncounterSpeciesId { get; private set; }
-    public bool RoomLootTaken { get; private set; }
+    public Creature? ActiveWild { get; private set; }
     public Creature? PendingWildCapture { get; private set; }
+    public IReadOnlyList<Creature> StarterOptions => _starterOptions;
+    private readonly List<Creature> _starterOptions = new();
+    private readonly HashSet<string> _lootedRoomsThisVisit = new(StringComparer.OrdinalIgnoreCase);
+    private List<string> _shopItemIds = new();
+    private List<string> _shopCreatureSpeciesIds = new();
+    private List<string> _shopMoveIds = new();
 
     public GameSession(ContentCatalog? content = null, int? seed = null)
     {
@@ -27,11 +32,7 @@ public sealed class GameSession
         _rng = new Random(Seed);
         _factory = new CreatureFactory(_content, _rng);
         _battler = new AutoBattleResolver(_content, _rng);
-
-        var starter = _factory.Create("slime", level: 2, nickname: "Buddy");
-        Player.Party.Add(starter);
-        Player.Board[0] = starter.Id;
-        EnsureRoomFlags();
+        RollStarterOptions();
     }
 
     public void Reseed(int seed)
@@ -63,11 +64,95 @@ public sealed class GameSession
 
         return Phase switch
         {
+            GamePhase.StarterSelect => HandleStarter(cmd, args),
             GamePhase.Explore => HandleExplore(cmd, args),
             GamePhase.WildReward => HandleWildReward(cmd, args),
             GamePhase.Shop => HandleShop(cmd, args),
             GamePhase.Battle => CommandResult.Fail("Battle resolves automatically. Use 'ready' from shop."),
             _ => CommandResult.Fail("Unknown phase.")
+        };
+    }
+
+    private void RollStarterOptions()
+    {
+        _starterOptions.Clear();
+        var starters = _content.Species.Values.Where(s => s.IsStarter).Select(s => s.Id).ToList();
+        if (starters.Count == 0)
+            starters = new List<string> { "slime", "rockmite", "sparkbat" };
+
+        // Three options: prefer distinct species, reshuffle IVs/ability/nature per option.
+        var shuffled = starters.OrderBy(_ => _rng.Next()).ToList();
+        while (shuffled.Count < 3)
+            shuffled.Add(starters[_rng.Next(starters.Count)]);
+
+        for (var i = 0; i < 3; i++)
+            _starterOptions.Add(_factory.Create(shuffled[i], level: 2));
+    }
+
+    private CommandResult HandleStarter(string cmd, string[] args)
+    {
+        if (cmd is "starters" or "look")
+            return ShowStarters();
+
+        if (cmd is "pick" && args.Length >= 1 && int.TryParse(args[0], out var n))
+            return PickStarter(n);
+
+        return CommandResult.Fail("Pick a starter: 'pick 1', 'pick 2', or 'pick 3'. Type 'starters' to review.");
+    }
+
+    public CommandResult ShowStarters()
+    {
+        var lines = new List<string>
+        {
+            "Choose your starter with:  pick 1  |  pick 2  |  pick 3",
+            ""
+        };
+        for (var i = 0; i < _starterOptions.Count; i++)
+            lines.AddRange(FormatCreatureCard(i + 1, _starterOptions[i]));
+        return CommandResult.Success("Starter select", lines);
+    }
+
+    private CommandResult PickStarter(int index)
+    {
+        if (index < 1 || index > _starterOptions.Count)
+            return CommandResult.Fail($"Pick a number 1-{_starterOptions.Count}.");
+
+        var starter = _starterOptions[index - 1];
+        Player.Party.Add(starter);
+        Player.Board[0] = starter.Id;
+        Phase = GamePhase.Explore;
+        EnsureRoomFlags();
+        var entryLoot = ApplyRoomEntryLoot(force: true);
+        MaybeSpawnEncounter();
+
+        var lines = new List<string> { $"You chose {starter.Nickname}!", "" };
+        lines.AddRange(entryLoot);
+        lines.AddRange(Look().Lines);
+        return CommandResult.Success("Run started.", lines);
+    }
+
+    private List<string> FormatCreatureCard(int number, Creature c)
+    {
+        var sp = _content.GetSpecies(c.SpeciesId);
+        var ability = c.AbilityId is null ? null : _content.TryGetAbility(c.AbilityId);
+        var nature = _content.GetNature(c.NatureId);
+        var abilityText = ability is null ? "None" : $"{ability.Name} ({ability.Description})";
+        var moveBits = c.MoveIds.Select(id =>
+            _content.Moves.TryGetValue(id, out var m) ? $"{m.Name}/{m.Type}" : id);
+        var learnBits = sp.Learnset
+            .OrderBy(e => e.Level)
+            .Select(e => $"{e.MoveId}@lv{e.Level}");
+        return new List<string>
+        {
+            $"[{number}] {c.Nickname} — Type:{sp.Type}  Lv{c.Level}",
+            $"    HP {c.CombatStats.Hp}  Atk {c.CombatStats.Atk}  Def {c.CombatStats.Def}  Spd {c.CombatStats.Spd}",
+            $"    IVs HP {c.Potential.Hp}/15  Atk {c.Potential.Atk}/15  Def {c.Potential.Def}/15  Spd {c.Potential.Spd}/15  (max ~+10%)",
+            $"    Nature: {nature.Name} (XP x{nature.XpGrowth:0.##})",
+            $"    Ability: {abilityText}",
+            $"    Known: {string.Join(", ", moveBits)}",
+            $"    Learnset: {string.Join(", ", learnBits)}",
+            $"    Shop-learnable: {string.Join(", ", sp.ShopMoveIds)}",
+            ""
         };
     }
 
@@ -78,7 +163,6 @@ public sealed class GameSession
             "look" => Look(),
             "go" when args.Length >= 1 => Go(args[0]),
             "fight" => FightWild(),
-            "take" => TakeLoot(),
             "end" => EndExploreToShop(),
             _ => CommandResult.Fail($"Unknown explore command '{cmd}'. Try help.")
         };
@@ -101,10 +185,12 @@ public sealed class GameSession
         return cmd switch
         {
             "shop" => ShopList(),
-            "buy" when args.Length >= 1 => Buy(args[0]),
+            "buy" when args.Length >= 1 => Buy(args),
+            "sell" when args.Length >= 1 => SellCreature(args[0]),
             "give" when args.Length >= 2 => Give(args[0], args[1]),
+            "teach" when args.Length >= 2 => Teach(args[0], args[1]),
             "board" when args.Length >= 2 => Board(args[0], args[1]),
-            "evolve" when args.Length >= 1 => Evolve(args[0]),
+            "evolve" when args.Length >= 1 => Evolve(args),
             "party" => Party(),
             "ready" => ReadyBattle(),
             "status" => Status(),
@@ -118,14 +204,47 @@ public sealed class GameSession
         var lines = new List<string>
         {
             $"{room.Name} — {room.Description}",
-            $"Exits: {string.Join(", ", room.Exits)}",
-            ActiveEncounterSpeciesId is null
-                ? "No wild creature in sight."
-                : $"Wild encounter: {_content.GetSpecies(ActiveEncounterSpeciesId).Name} ({ActiveEncounterSpeciesId}). Type 'fight'.",
-            RoomLootTaken ? "Loot already taken." : $"Possible loot: gold {room.GoldLootMin}-{room.GoldLootMax}" +
-                (room.ItemLootIds.Count > 0 ? $", items ({string.Join("/", room.ItemLootIds)})" : "")
+            $"Exits: {string.Join(", ", room.Exits)}"
         };
+
+        if (ActiveWild is null)
+        {
+            lines.Add("No wild creature in sight.");
+        }
+        else
+        {
+            var sp = _content.GetSpecies(ActiveWild.SpeciesId);
+            var winPct = EstimateWildWinPercent();
+            var riskLabel = winPct switch
+            {
+                >= 70 => "FAVORABLE",
+                >= 45 => "EVEN",
+                >= 25 => "RISKY",
+                _ => "DANGER"
+            };
+            lines.Add($"Wild: {ActiveWild.Nickname} [{sp.Type}] Lv{ActiveWild.Level} " +
+                      $"HP {ActiveWild.CombatStats.Hp} Atk {ActiveWild.CombatStats.Atk} Def {ActiveWild.CombatStats.Def} Spd {ActiveWild.CombatStats.Spd}");
+            lines.Add($"Risk: ~{winPct:0}% estimated win chance [{riskLabel}] — type 'fight' to engage.");
+            var living = GetLivingExploreFighters().Count;
+            if (living == 0)
+                lines.Add("You have no living creatures — you cannot fight until shop/PvP heals your party.");
+        }
+
         return CommandResult.Success($"Round {Round} | Explore", lines);
+    }
+
+    private int EstimateWildWinPercent()
+    {
+        if (ActiveWild is null) return 0;
+        var fighters = GetLivingExploreFighters();
+        if (fighters.Count == 0) return 0;
+
+        var playerSide = fighters.Select(c => Combatant.FromCreature(c, _content.GetSpecies(c.SpeciesId), true)).ToList();
+        var enemySide = new List<Combatant>
+        {
+            Combatant.FromCreature(ActiveWild, _content.GetSpecies(ActiveWild.SpeciesId), false)
+        };
+        return (int)Math.Round(_battler.EstimateWinRate(playerSide, enemySide) * 100);
     }
 
     private CommandResult Go(string roomId)
@@ -135,18 +254,51 @@ public sealed class GameSession
             return CommandResult.Fail($"Can't go to '{roomId}' from here. Exits: {string.Join(", ", room.Exits)}");
 
         CurrentRoomId = room.Exits.First(e => e.Equals(roomId, StringComparison.OrdinalIgnoreCase));
-        RoomLootTaken = false;
-        ActiveEncounterSpeciesId = null;
+        ActiveWild = null;
         EnsureRoomFlags();
+        var lootLines = ApplyRoomEntryLoot().ToList();
         MaybeSpawnEncounter();
-        return Look();
+        var look = Look();
+        var lines = lootLines.Concat(look.Lines).ToList();
+        return CommandResult.Success(look.Message, lines);
     }
 
     private void EnsureRoomFlags()
     {
         var room = _content.GetRoom(CurrentRoomId);
-        if (!string.IsNullOrEmpty(room.VisitFlag))
-            Player.Flags.Add(room.VisitFlag);
+        if (string.IsNullOrEmpty(room.VisitFlag))
+            return;
+
+        // Player-level: "has this run ever reached Crystal Cave?"
+        Player.Flags.Add(room.VisitFlag);
+
+        // Creature-level: only party members present with you get the visit credit.
+        foreach (var creature in Player.Party)
+            creature.Flags.Add(room.VisitFlag);
+    }
+
+    private IEnumerable<string> ApplyRoomEntryLoot(bool force = false)
+    {
+        if (!force && _lootedRoomsThisVisit.Contains(CurrentRoomId))
+            yield break;
+
+        _lootedRoomsThisVisit.Add(CurrentRoomId);
+        var room = _content.GetRoom(CurrentRoomId);
+        var gold = room.GoldLootMax <= room.GoldLootMin
+            ? room.GoldLootMin
+            : _rng.Next(room.GoldLootMin, room.GoldLootMax + 1);
+        if (gold > 0)
+        {
+            Player.Gold += gold;
+            yield return $"Room loot: +{gold} gold (total {Player.Gold}).";
+        }
+
+        if (room.ItemLootIds.Count > 0 && _rng.NextDouble() < 0.45)
+        {
+            var itemId = room.ItemLootIds[_rng.Next(room.ItemLootIds.Count)];
+            Player.InventoryItemIds.Add(itemId);
+            yield return $"Room loot: found {itemId}.";
+        }
     }
 
     private void MaybeSpawnEncounter()
@@ -154,46 +306,26 @@ public sealed class GameSession
         var room = _content.GetRoom(CurrentRoomId);
         if (room.EncounterSpeciesIds.Count == 0) return;
         if (_rng.NextDouble() > room.EncounterChance) return;
-        ActiveEncounterSpeciesId = room.EncounterSpeciesIds[_rng.Next(room.EncounterSpeciesIds.Count)];
-    }
 
-    private CommandResult TakeLoot()
-    {
-        if (RoomLootTaken)
-            return CommandResult.Fail("Nothing left to take here.");
-
-        var room = _content.GetRoom(CurrentRoomId);
-        RoomLootTaken = true;
-        var gold = room.GoldLootMax <= room.GoldLootMin
-            ? room.GoldLootMin
-            : _rng.Next(room.GoldLootMin, room.GoldLootMax + 1);
-        Player.Gold += gold;
-        var lines = new List<string> { $"Found {gold} gold. (Total {Player.Gold})" };
-        if (room.ItemLootIds.Count > 0 && _rng.NextDouble() < 0.5)
-        {
-            var itemId = room.ItemLootIds[_rng.Next(room.ItemLootIds.Count)];
-            Player.InventoryItemIds.Add(itemId);
-            lines.Add($"Found item: {itemId}");
-        }
-
-        return CommandResult.Success("Loot taken.", lines);
+        var speciesId = room.EncounterSpeciesIds[_rng.Next(room.EncounterSpeciesIds.Count)];
+        var wildLevel = Math.Max(1, Round + _rng.Next(0, 2));
+        ActiveWild = _factory.Create(speciesId, wildLevel);
     }
 
     private CommandResult FightWild()
     {
-        if (ActiveEncounterSpeciesId is null)
+        if (ActiveWild is null)
             return CommandResult.Fail("No wild encounter here. Try 'go' to another room.");
 
-        var fighters = GetPlayerFighters();
+        var fighters = GetLivingExploreFighters();
         if (fighters.Count == 0)
-            return CommandResult.Fail("You need at least one creature in your party.");
+            return CommandResult.Fail("No living creatures can fight. Survive to the shop to heal, or end explore.");
 
-        foreach (var c in fighters) _factory.HealFull(c);
-
-        var wildLevel = Math.Max(1, Round + _rng.Next(0, 2));
-        var wild = _factory.Create(ActiveEncounterSpeciesId, wildLevel);
+        var winPct = EstimateWildWinPercent();
+        var wild = ActiveWild;
         var wildSpecies = _content.GetSpecies(wild.SpeciesId);
 
+        // Explore HP persists — do not heal before wild fights.
         var playerSide = fighters.Select(c => Combatant.FromCreature(c, _content.GetSpecies(c.SpeciesId), true)).ToList();
         var enemySide = new List<Combatant> { Combatant.FromCreature(wild, wildSpecies, false) };
 
@@ -201,20 +333,29 @@ public sealed class GameSession
         ApplyHpFromCombatants(fighters, playerSide);
         AwardXp(fighters, wild.Level, result.Won);
 
-        var lines = result.Log.Select(e => e.Message).ToList();
+        var lines = new List<string> { $"Engaging (pre-fight win estimate was ~{winPct}%)." };
+        lines.AddRange(result.Log.Select(e => e.Message));
+        // Player HP is NEVER lost in wild fights.
+        lines.Add($"Party HP after fight: {string.Join(", ", fighters.Select(c => $"{c.Nickname} {c.CurrentHp}/{c.CombatStats.Hp}"))}");
 
         if (!result.Won)
         {
-            ActiveEncounterSpeciesId = null;
-            lines.Add("The wild creature got away. You earned some XP.");
+            ActiveWild = null;
+            lines.Add("The wild creature got away. Your injured party keeps its HP for the rest of explore.");
             return CommandResult.Success("Wild fight lost.", lines);
         }
 
+        // Credit only the creatures that fought this win — not the whole party.
+        var battleFlag = $"WonBattle:{CurrentRoomId}";
+        foreach (var fighter in fighters)
+            fighter.Flags.Add(battleFlag);
+        lines.Add($"Creature flags granted: {battleFlag} → {string.Join(", ", fighters.Select(f => f.Nickname))}");
+
         PendingWildCapture = wild;
         Phase = GamePhase.WildReward;
-        ActiveEncounterSpeciesId = null;
+        ActiveWild = null;
         lines.Add($"Victory! Accept {wild.Nickname} into your party, or decline for a bonus.");
-        lines.Add($"Wild rolled nature={wild.NatureId}, potential Atk={wild.Potential.Atk}/Def={wild.Potential.Def}/Spd={wild.Potential.Spd}/Hp={wild.Potential.Hp}");
+        lines.Add($"Wild: nature={wild.NatureId} ability={wild.AbilityId ?? "-"} IVs A{wild.Potential.Atk}/D{wild.Potential.Def}/S{wild.Potential.Spd}/H{wild.Potential.Hp}");
         lines.Add("Type 'accept' or 'decline'.");
         return CommandResult.Success("Wild fight won — choose reward.", lines);
     }
@@ -227,10 +368,12 @@ public sealed class GameSession
         var wild = PendingWildCapture;
         var species = _content.GetSpecies(wild.SpeciesId);
         wild.Nickname = UniqueNickname(wild.Nickname);
+        _factory.HealFull(wild);
         Player.Party.Add(wild);
         var lines = new List<string> { $"{wild.Nickname} joined your party! ({Player.Party.Count} creatures)" };
 
-        if (species.DropItemIds.Count > 0 && _rng.NextDouble() < species.AcceptAlsoItemChance)
+        if (species.DropItemIds.Count > 0 &&
+            _rng.NextDouble() < (species.AcceptItemChance ?? 0))
         {
             var itemId = species.DropItemIds[_rng.Next(species.DropItemIds.Count)];
             Player.InventoryItemIds.Add(itemId);
@@ -239,7 +382,7 @@ public sealed class GameSession
 
         PendingWildCapture = null;
         Phase = GamePhase.Explore;
-        lines.Add("Back to explore. Type 'look' or 'end' when ready for shop.");
+        lines.Add("Back to explore. Injured party members stay injured until shop.");
         return CommandResult.Success("Creature accepted.", lines);
     }
 
@@ -250,13 +393,14 @@ public sealed class GameSession
 
         var wild = PendingWildCapture;
         var species = _content.GetSpecies(wild.SpeciesId);
-        Player.Gold += species.DeclineGoldBonus;
+        Player.Gold += species.DeclineGoldBonus ?? 0;
         var lines = new List<string>
         {
-            $"Declined. +{species.DeclineGoldBonus} gold (total {Player.Gold})."
+            $"Declined. +{species.DeclineGoldBonus ?? 0} gold (total {Player.Gold})."
         };
 
-        if (species.DropItemIds.Count > 0 && _rng.NextDouble() < species.DeclineItemChance)
+        if (species.DropItemIds.Count > 0 &&
+            _rng.NextDouble() < (species.DeclineItemChance ?? 0))
         {
             var itemId = species.DropItemIds[_rng.Next(species.DropItemIds.Count)];
             Player.InventoryItemIds.Add(itemId);
@@ -269,7 +413,6 @@ public sealed class GameSession
 
         PendingWildCapture = null;
         Phase = GamePhase.Explore;
-        lines.Add("Back to explore. Type 'look' or 'end' when ready for shop.");
         return CommandResult.Success("Declined capture.", lines);
     }
 
@@ -280,27 +423,101 @@ public sealed class GameSession
 
         Phase = GamePhase.Shop;
         HealParty();
+        RestockShop();
         var shop = ShopList();
-        var lines = new List<string> { shop.Message };
+        var lines = new List<string> { "Party fully healed for shop / PvP." };
+        lines.Add(shop.Message);
         lines.AddRange(shop.Lines);
         return CommandResult.Success(
             $"Explore ended. Shop phase — Round {Round}. Assign your board (max {PlayerState.MaxBoardSize}), then 'ready'.",
             lines);
     }
 
+    private void RestockShop()
+    {
+        _shopItemIds = _content.Items.Keys.OrderBy(_ => _rng.Next()).Take(3).ToList();
+        _shopMoveIds = _content.Moves.Keys.OrderBy(_ => _rng.Next()).Take(3).ToList();
+        _shopCreatureSpeciesIds = _content.Species.Values
+            .Where(s => s.BuyGoldMin is not null && s.BuyGoldMax is not null)
+            .Select(s => s.Id)
+            .OrderBy(_ => _rng.Next())
+            .Take(3)
+            .ToList();
+    }
+
     private CommandResult ShopList()
     {
-        var lines = _content.Items.Values
-            .Select(i => $"  {i.Id} — {i.Name} ({i.ShopCost}g): {i.Description}")
-            .ToList();
-        lines.Insert(0, $"Gold: {Player.Gold}");
-        lines.Add("Inventory: " + (Player.InventoryItemIds.Count == 0 ? "(empty)" : string.Join(", ", Player.InventoryItemIds)));
+        var lines = new List<string> { $"Gold: {Player.Gold}", "", "-- Items --" };
+        foreach (var id in _shopItemIds)
+        {
+            var i = _content.Items[id];
+            lines.Add($"  item {i.Id} — {i.Name} ({i.ShopCost}g): {i.Description}");
+        }
+
+        lines.Add("");
+        lines.Add("-- Creatures --");
+        foreach (var id in _shopCreatureSpeciesIds)
+        {
+            var s = _content.GetSpecies(id);
+            lines.Add($"  creature {s.Id} — {s.Name} [{s.Type}] buy {s.BuyGoldMin}-{s.BuyGoldMax}g / sell {s.SellGoldMin}-{s.SellGoldMax}g");
+        }
+
+        lines.Add("");
+        lines.Add("-- Moves --");
+        foreach (var id in _shopMoveIds)
+        {
+            var m = _content.Moves[id];
+            lines.Add($"  move {m.Id} — {m.Name} [{m.Type}] ({m.ShopCost}g) power {m.Power}: {m.Description}");
+        }
+
+        lines.Add("");
+        lines.Add("Items inv: " + (Player.InventoryItemIds.Count == 0 ? "(empty)" : string.Join(", ", Player.InventoryItemIds)));
+        lines.Add("Moves inv: " + (Player.InventoryMoveIds.Count == 0 ? "(empty)" : string.Join(", ", Player.InventoryMoveIds)));
         lines.Add(DescribeBoard());
+        lines.Add("Buy: buy item <id> | buy creature <id> | buy move <id>");
+        lines.Add("Also: give <creature> <item> | teach <creature> <move> | sell <creature> | evolve <creature> [intoId]");
         return CommandResult.Success("Shop", lines);
     }
 
-    private CommandResult Buy(string itemId)
+    private CommandResult Buy(string[] args)
     {
+        // buy item X | buy creature X | buy move X | buy X (auto)
+        string kind;
+        string id;
+        if (args.Length >= 2 && args[0] is "item" or "creature" or "move")
+        {
+            kind = args[0].ToLowerInvariant();
+            id = args[1];
+        }
+        else
+        {
+            id = args[0];
+            kind = DetectShopKind(id) ?? "";
+            if (kind.Length == 0)
+                return CommandResult.Fail("Usage: buy item|creature|move <id> (must be in current shop stock).");
+        }
+
+        return kind switch
+        {
+            "item" => BuyItem(id),
+            "creature" => BuyCreature(id),
+            "move" => BuyMove(id),
+            _ => CommandResult.Fail("Usage: buy item|creature|move <id>")
+        };
+    }
+
+    private string? DetectShopKind(string id)
+    {
+        if (_shopItemIds.Any(x => x.Equals(id, StringComparison.OrdinalIgnoreCase))) return "item";
+        if (_shopCreatureSpeciesIds.Any(x => x.Equals(id, StringComparison.OrdinalIgnoreCase))) return "creature";
+        if (_shopMoveIds.Any(x => x.Equals(id, StringComparison.OrdinalIgnoreCase))) return "move";
+        return null;
+    }
+
+    private CommandResult BuyItem(string itemId)
+    {
+        if (!_shopItemIds.Any(x => x.Equals(itemId, StringComparison.OrdinalIgnoreCase)))
+            return CommandResult.Fail($"Item '{itemId}' is not in today's shop. Type 'shop'.");
         if (!_content.Items.TryGetValue(itemId, out var item))
             return CommandResult.Fail($"Unknown item '{itemId}'.");
         if (Player.Gold < item.ShopCost)
@@ -308,8 +525,75 @@ public sealed class GameSession
 
         Player.Gold -= item.ShopCost;
         Player.InventoryItemIds.Add(item.Id);
+        _shopItemIds.RemoveAll(x => x.Equals(item.Id, StringComparison.OrdinalIgnoreCase));
         return CommandResult.Success($"Bought {item.Name}. Gold left: {Player.Gold}");
     }
+
+    private CommandResult BuyCreature(string speciesId)
+    {
+        if (!_shopCreatureSpeciesIds.Any(x => x.Equals(speciesId, StringComparison.OrdinalIgnoreCase)))
+            return CommandResult.Fail($"Creature '{speciesId}' is not in today's shop. Type 'shop'.");
+
+        var species = _content.GetSpecies(speciesId);
+        if (species.BuyGoldMin is null || species.BuyGoldMax is null)
+            return CommandResult.Fail($"{species.Name} cannot be bought.");
+
+        var cost = RollRange(species.BuyGoldMin.Value, species.BuyGoldMax.Value);
+        if (Player.Gold < cost)
+            return CommandResult.Fail($"Need {cost} gold (have {Player.Gold}).");
+
+        Player.Gold -= cost;
+        var bought = _factory.Create(species.Id, level: Math.Max(1, Round));
+        bought.Nickname = UniqueNickname(bought.Nickname);
+        Player.Party.Add(bought);
+        _shopCreatureSpeciesIds.RemoveAll(x => x.Equals(species.Id, StringComparison.OrdinalIgnoreCase));
+        return CommandResult.Success(
+            $"Bought {bought.Nickname} for {cost}g. Gold left: {Player.Gold}",
+            new[] { bought.ToString() });
+    }
+
+    private CommandResult BuyMove(string moveId)
+    {
+        if (!_shopMoveIds.Any(x => x.Equals(moveId, StringComparison.OrdinalIgnoreCase)))
+            return CommandResult.Fail($"Move '{moveId}' is not in today's shop. Type 'shop'.");
+        if (!_content.Moves.TryGetValue(moveId, out var move))
+            return CommandResult.Fail($"Unknown move '{moveId}'.");
+        if (Player.Gold < move.ShopCost)
+            return CommandResult.Fail($"Need {move.ShopCost} gold (have {Player.Gold}).");
+
+        Player.Gold -= move.ShopCost;
+        Player.InventoryMoveIds.Add(move.Id);
+        _shopMoveIds.RemoveAll(x => x.Equals(move.Id, StringComparison.OrdinalIgnoreCase));
+        return CommandResult.Success($"Bought move tome: {move.Name}. Use 'teach <creature> {move.Id}'. Gold left: {Player.Gold}");
+    }
+
+    private CommandResult SellCreature(string creatureName)
+    {
+        var creature = Player.FindCreatureByName(creatureName);
+        if (creature is null)
+            return CommandResult.Fail($"No creature named '{creatureName}'.");
+
+        var species = _content.GetSpecies(creature.SpeciesId);
+        if (species.SellGoldMin is null || species.SellGoldMax is null)
+            return CommandResult.Fail($"{creature.Nickname} cannot be sold.");
+
+        var payout = RollRange(species.SellGoldMin.Value, species.SellGoldMax.Value);
+        for (var i = 0; i < Player.Board.Length; i++)
+        {
+            if (Player.Board[i] == creature.Id)
+                Player.Board[i] = null;
+        }
+
+        if (creature.HeldItemId is not null)
+            Player.InventoryItemIds.Add(creature.HeldItemId);
+
+        Player.Party.Remove(creature);
+        Player.Gold += payout;
+        return CommandResult.Success($"Sold {creature.Nickname} for {payout}g. Gold: {Player.Gold}");
+    }
+
+    private int RollRange(int min, int max) =>
+        max <= min ? min : _rng.Next(min, max + 1);
 
     private CommandResult Give(string creatureName, string itemId)
     {
@@ -327,7 +611,43 @@ public sealed class GameSession
         Player.InventoryItemIds.RemoveAt(invIndex);
         creature.HeldItemId = itemId;
         _factory.Refresh(creature);
-        return CommandResult.Success($"{creature.Nickname} now holds {itemId}. Stats refreshed: {creature}");
+        // Shop party is healed anyway, but keep current==max if they were full.
+        if (Phase == GamePhase.Shop)
+            _factory.HealFull(creature);
+
+        return CommandResult.Success($"{creature.Nickname} now holds {itemId}. {creature}");
+    }
+
+    private CommandResult Teach(string creatureName, string moveId)
+    {
+        var creature = Player.FindCreatureByName(creatureName);
+        if (creature is null)
+            return CommandResult.Fail($"No creature named '{creatureName}'.");
+
+        var invIndex = Player.InventoryMoveIds.FindIndex(m => m.Equals(moveId, StringComparison.OrdinalIgnoreCase));
+        if (invIndex < 0)
+            return CommandResult.Fail($"Move '{moveId}' not in move inventory. Buy one from the shop first.");
+
+        if (!_content.Moves.TryGetValue(moveId, out var move))
+            return CommandResult.Fail($"Unknown move '{moveId}'.");
+
+        if (!_factory.CanLearnFromShop(creature, move.Id))
+        {
+            var species = _content.GetSpecies(creature.SpeciesId);
+            return CommandResult.Fail(
+                $"{creature.Nickname} cannot learn {move.Name} from the shop. Allowed: {string.Join(", ", species.ShopMoveIds)}");
+        }
+
+        if (creature.MoveIds.Any(m => m.Equals(move.Id, StringComparison.OrdinalIgnoreCase)))
+            return CommandResult.Fail($"{creature.Nickname} already knows {move.Name}.");
+
+        if (creature.MoveIds.Count >= Creature.MaxMoves)
+            return CommandResult.Fail($"{creature.Nickname} already knows {Creature.MaxMoves} moves. (Forget-move not implemented yet.)");
+
+        Player.InventoryMoveIds.RemoveAt(invIndex);
+        creature.MoveIds.Add(move.Id);
+        return CommandResult.Success(
+            $"{creature.Nickname} learned {move.Name} ({move.Type})! Moves: {string.Join(", ", creature.MoveIds)}");
     }
 
     private CommandResult Board(string slotText, string creatureName)
@@ -355,40 +675,128 @@ public sealed class GameSession
         return CommandResult.Success($"Slot {slot} = {creature.Nickname}. {DescribeBoard()}");
     }
 
-    private CommandResult Evolve(string creatureName)
+    private CommandResult Evolve(string[] args)
     {
+        var creatureName = args[0];
+        var intoHint = args.Length >= 2 ? args[1] : null;
         var creature = Player.FindCreatureByName(creatureName);
         if (creature is null)
             return CommandResult.Fail($"No creature named '{creatureName}'.");
 
         var species = _content.GetSpecies(creature.SpeciesId);
-        if (string.IsNullOrEmpty(species.EvolvesIntoId))
+        var options = species.Evolutions ?? new List<EvolutionOption>();
+        if (options.Count == 0)
             return CommandResult.Fail($"{creature.Nickname} cannot evolve further.");
 
-        if (species.EvolveAtLevel is int needLevel && creature.Level < needLevel)
-            return CommandResult.Fail($"Needs level {needLevel} (currently {creature.Level}).");
+        var eligible = options.Where(o => EvolutionEligible(creature, o)).ToList();
 
-        if (!string.IsNullOrEmpty(species.EvolveRequiresFlag) && !Player.Flags.Contains(species.EvolveRequiresFlag))
-            return CommandResult.Fail($"Missing flag: {species.EvolveRequiresFlag}");
+        if (intoHint is null)
+        {
+            if (eligible.Count == 1)
+                return ApplyEvolution(creature, eligible[0]);
 
-        var next = _content.GetSpecies(species.EvolvesIntoId);
+            var lines = new List<string> { $"Evolution options for {creature.Nickname}:" };
+            foreach (var o in options)
+            {
+                var next = _content.GetSpecies(o.IntoId);
+                var ok = EvolutionEligible(creature, o);
+                var reqParts = new List<string> { $"lv>={(o.AtLevel?.ToString() ?? "?")}" };
+                if (o.RequiresPlayerFlags is { Count: > 0 })
+                    reqParts.Add("player:" + string.Join("+", o.RequiresPlayerFlags));
+                if (o.RequiresCreatureFlags is { Count: > 0 })
+                    reqParts.Add("creature:" + string.Join("+", o.RequiresCreatureFlags));
+                lines.Add($"  {(ok ? "[ready]" : "[locked]")} {o.IntoId} ({next.Name}) — {string.Join(", ", reqParts)}");
+            }
+
+            if (eligible.Count == 0)
+                lines.Add("None ready. Meet a path's level/flag, then: evolve <name> <intoId>");
+            else
+                lines.Add("Choose with: evolve <name> <intoId>");
+
+            return CommandResult.Success("Choose evolution path.", lines);
+        }
+
+        var chosen = options.FirstOrDefault(o => o.IntoId.Equals(intoHint, StringComparison.OrdinalIgnoreCase));
+        if (chosen is null)
+            return CommandResult.Fail($"'{intoHint}' is not an evolution of {creature.Nickname}. Type 'evolve {creatureName}' to list paths.");
+
+        if (!EvolutionEligible(creature, chosen))
+            return CommandResult.Fail(DescribeEvolutionBlock(creature, chosen));
+
+        return ApplyEvolution(creature, chosen);
+    }
+
+    private bool EvolutionEligible(Creature creature, EvolutionOption option)
+    {
+        if (option.AtLevel is int need && creature.Level < need)
+            return false;
+        if (option.RequiresPlayerFlags is { Count: > 0 } &&
+            option.RequiresPlayerFlags.Any(f => !Player.Flags.Contains(f)))
+            return false;
+        if (option.RequiresCreatureFlags is { Count: > 0 } &&
+            option.RequiresCreatureFlags.Any(f => !creature.Flags.Contains(f)))
+            return false;
+        return true;
+    }
+
+    private string DescribeEvolutionBlock(Creature creature, EvolutionOption option)
+    {
+        if (option.AtLevel is int need && creature.Level < need)
+            return $"Needs level {need} (currently {creature.Level}).";
+        if (option.RequiresPlayerFlags is { Count: > 0 })
+        {
+            var missing = option.RequiresPlayerFlags.Where(f => !Player.Flags.Contains(f)).ToList();
+            if (missing.Count > 0)
+                return $"Missing player flag(s): {string.Join(", ", missing)}";
+        }
+
+        if (option.RequiresCreatureFlags is { Count: > 0 })
+        {
+            var missing = option.RequiresCreatureFlags.Where(f => !creature.Flags.Contains(f)).ToList();
+            if (missing.Count > 0)
+                return $"Missing creature flag(s) on {creature.Nickname}: {string.Join(", ", missing)}";
+        }
+
+        return "Evolution requirements not met.";
+    }
+
+    private CommandResult ApplyEvolution(Creature creature, EvolutionOption option)
+    {
+        var next = _content.GetSpecies(option.IntoId);
+        var keepHpRatio = creature.CombatStats.Hp <= 0
+            ? 1.0
+            : creature.CurrentHp / (double)creature.CombatStats.Hp;
         creature.SpeciesId = next.Id;
-        creature.Nickname = next.Name;
-        creature.MoveIds = next.MoveIds.ToList();
+        creature.Nickname = UniqueNickname(next.Name);
+        var learnedOnEvolve = _factory.TryLearnLevelMoves(creature);
+
+        if (next.AbilityOptions.Count > 0 &&
+            (creature.AbilityId is null ||
+             next.AbilityOptions.All(o => !o.AbilityId.Equals(creature.AbilityId, StringComparison.OrdinalIgnoreCase))))
+        {
+            creature.AbilityId = next.AbilityOptions[_rng.Next(next.AbilityOptions.Count)].AbilityId;
+        }
+
         _factory.Refresh(creature);
-        _factory.HealFull(creature);
-        return CommandResult.Success($"{creatureName} evolved into {next.Name} (stage {next.EvolutionStage})! {creature}");
+        creature.CurrentHp = Math.Max(0, (int)Math.Round(creature.CombatStats.Hp * keepHpRatio));
+        if (Phase == GamePhase.Shop)
+            _factory.HealFull(creature);
+
+        var msg = $"Evolved into {next.Name} (stage {next.EvolutionStage})! {creature}";
+        if (learnedOnEvolve.Count > 0)
+            msg += $" Learned: {string.Join(", ", learnedOnEvolve)}.";
+        return CommandResult.Success(msg);
     }
 
     private CommandResult ReadyBattle()
     {
-        var fighters = GetPlayerFighters();
+        var fighters = GetPlayerFighters().Where(c => c.IsAlive).ToList();
         if (fighters.Count == 0)
-            return CommandResult.Fail("Put at least one creature on the board: board <1-6> <name>");
+            return CommandResult.Fail("Put at least one living creature on the board: board <1-6> <name>");
 
         Phase = GamePhase.Battle;
         HealParty();
-        fighters = GetPlayerFighters().ToList();
+        fighters = GetPlayerFighters().Where(c => c.IsAlive).ToList();
 
         var enemy = BuildAiBoard();
         var playerSide = fighters.Select(c => Combatant.FromCreature(c, _content.GetSpecies(c.SpeciesId), true)).ToList();
@@ -403,7 +811,6 @@ public sealed class GameSession
 
         if (result.Won)
         {
-            // AI "loses" HP conceptually; player gains a little gold.
             Player.Gold += 3 + Round;
             lines.Add($"You win the round! +{3 + Round} gold. Player HP still {Player.Hp}/{PlayerState.StartingHp}.");
             Player.Flags.Add("WonBattle");
@@ -411,7 +818,7 @@ public sealed class GameSession
         else
         {
             Player.Hp -= result.DamageDealtToLoserHp;
-            lines.Add($"You took {result.DamageDealtToLoserHp} damage. Player HP: {Player.Hp}/{PlayerState.StartingHp}");
+            lines.Add($"You took {result.DamageDealtToLoserHp} player HP damage. Player HP: {Player.Hp}/{PlayerState.StartingHp}");
             if (Player.Hp <= 0)
             {
                 Phase = GamePhase.GameOver;
@@ -423,11 +830,14 @@ public sealed class GameSession
         Round++;
         Phase = GamePhase.Explore;
         CurrentRoomId = "camp";
-        RoomLootTaken = false;
-        ActiveEncounterSpeciesId = null;
-        MaybeSpawnEncounter();
+        ActiveWild = null;
+        _lootedRoomsThisVisit.Clear();
+        EnsureRoomFlags();
         HealParty();
-        lines.Add($"--- Round {Round} Explore begins at Camp Clearing ---");
+        var loot = ApplyRoomEntryLoot(force: true).ToList();
+        MaybeSpawnEncounter();
+        lines.Add($"--- Round {Round} Explore begins (party healed for new explore cycle) ---");
+        lines.AddRange(loot);
         lines.AddRange(Look().Lines);
         return CommandResult.Success("Battle complete.", lines);
     }
@@ -447,11 +857,18 @@ public sealed class GameSession
         {
             var id = pool[_rng.Next(pool.Count)];
             var level = Math.Max(1, Round + _rng.Next(0, 3));
-            var c = _factory.Create(id, level);
-            list.Add(c);
+            list.Add(_factory.Create(id, level));
         }
 
         return list;
+    }
+
+    /// <summary>Living fighters for explore wilds: living board first, else living party.</summary>
+    private List<Creature> GetLivingExploreFighters()
+    {
+        var boardLiving = Player.GetBoardCreatures().Where(c => c.IsAlive).ToList();
+        if (boardLiving.Count > 0) return boardLiving;
+        return Player.Party.Where(c => c.IsAlive).Take(PlayerState.MaxBoardSize).ToList();
     }
 
     private List<Creature> GetPlayerFighters()
@@ -484,6 +901,7 @@ public sealed class GameSession
                 c.Xp -= c.XpToNextLevel();
                 c.Level++;
                 _factory.Refresh(c);
+                _factory.TryLearnLevelMoves(c);
             }
 
             _factory.Refresh(c);
@@ -512,7 +930,7 @@ public sealed class GameSession
             }
 
             var c = Player.FindCreature(id.Value);
-            parts.Add($"{i + 1}:{(c is null ? "?" : c.Nickname)}");
+            parts.Add($"{i + 1}:{(c is null ? "?" : $"{c.Nickname}({c.CurrentHp}/{c.CombatStats.Hp})")}");
         }
 
         return "Board [" + string.Join(" | ", parts) + "]";
@@ -523,15 +941,25 @@ public sealed class GameSession
         if (Player.Party.Count == 0)
             return CommandResult.Success("Party empty.");
 
-        var lines = Player.Party.Select(c =>
+        var lines = Player.Party.SelectMany(c =>
         {
             var sp = _content.GetSpecies(c.SpeciesId);
-            return $"  {c} | nature={c.NatureId} potential=A{c.Potential.Atk}/D{c.Potential.Def}/S{c.Potential.Spd}/H{c.Potential.Hp} " +
-                   $"start=A{c.StartingStats.Atk}/D{c.StartingStats.Def}/S{c.StartingStats.Spd}/H{c.StartingStats.Hp} " +
-                   $"XP {c.Xp}/{c.XpToNextLevel()} stage={sp.EvolutionStage} item={c.HeldItemId ?? "-"}";
+            var ability = c.AbilityId is null ? null : _content.TryGetAbility(c.AbilityId);
+            return new[]
+            {
+                $"  {c} | {sp.Type} | nature={c.NatureId} ability={ability?.Name ?? "-"}",
+                $"      IVs A{c.Potential.Atk}/D{c.Potential.Def}/S{c.Potential.Spd}/H{c.Potential.Hp} " +
+                $"XP {c.Xp}/{c.XpToNextLevel()} stage={sp.EvolutionStage} item={c.HeldItemId ?? "-"}" +
+                (c.IsAlive ? "" : " [FAINTED]"),
+                $"      Moves: {string.Join(", ", c.MoveIds.Select(FormatKnownMove))}",
+                $"      Flags: {(c.Flags.Count == 0 ? "(none)" : string.Join(", ", c.Flags.OrderBy(f => f)))}"
+            };
         }).ToList();
         return CommandResult.Success("Party:", lines);
     }
+
+    private string FormatKnownMove(string moveId) =>
+        _content.Moves.TryGetValue(moveId, out var m) ? $"{m.Name}[{m.Type}]" : moveId;
 
     private CommandResult Status()
     {
@@ -539,9 +967,9 @@ public sealed class GameSession
         {
             $"Phase={Phase} Round={Round} Seed={Seed}",
             $"Player HP={Player.Hp}/{PlayerState.StartingHp} Gold={Player.Gold}",
-            $"Room={CurrentRoomId} Encounter={ActiveEncounterSpeciesId ?? "none"}",
+            $"Room={CurrentRoomId} Encounter={ActiveWild?.Nickname ?? "none"}",
             DescribeBoard(),
-            $"Flags: {(Player.Flags.Count == 0 ? "(none)" : string.Join(", ", Player.Flags.OrderBy(f => f)))}"
+            $"Player flags: {(Player.Flags.Count == 0 ? "(none)" : string.Join(", ", Player.Flags.OrderBy(f => f)))}"
         };
         return CommandResult.Success("Status", lines);
     }
@@ -563,10 +991,12 @@ public sealed class GameSession
 
     private static CommandResult Help() => CommandResult.Success("Commands", new[]
     {
-        "Explore: look | go <room> | fight | take | party | end",
+        "Start: starters | pick <1-3>",
+        "Explore: look | go <room> | fight | party | end",
         "After wild win: accept | decline",
-        "Shop: shop | buy <item> | give <creature> <item> | board <1-6> <creature|clear> | evolve <creature> | ready",
+        "Shop: shop | buy item|creature|move <id> | sell <creature> | give <creature> <item>",
+        "      teach <creature> <move> | board <1-6> <creature|clear> | evolve <creature> [intoId] | ready",
         "Anytime: status | help | seed <n>",
-        "Tip: edit src/GameCore/Content/*.json to add species/stats."
+        "Edit content in src/GameCore/Content/*.json (species use evolutions[] + buy/sell gold ranges)."
     });
 }
